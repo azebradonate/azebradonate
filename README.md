@@ -54,8 +54,10 @@ Telegram Bot (python-telegram-bot, async)
 ↓
 
 Donation Flow
+
 ├── 
 Manual Card Payment (admin moderation)
+
 ├── 
 Telegram Stars Payment (automatic)
 
