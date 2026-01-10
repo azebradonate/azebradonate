@@ -10,22 +10,7 @@ import asyncpg
 import time
 from telegram import LabeledPrice
 from telegram.ext import PreCheckoutQueryHandler
-import asyncio
 
-# === СТАРЫЙ КОД (без изменений) ===
-import os
-import asyncio
-import logging
-from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
-import json
-import aiohttp
-import asyncpg
-import time
-from telegram import LabeledPrice
-from telegram.ext import PreCheckoutQueryHandler
-import asyncio
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -55,7 +40,7 @@ REF_THRESHOLDS = [
     (100, 2),
     (30, 1),
 ]
-MAX_OWNER_BONUS = 10  # global cap for owner's total bonus (sum of percentages from referrals), see notes below
+MAX_OWNER_BONUS = 10  # global cap for owner's total bonus (sum of percentages from referrals)
 
 # Language data (english, azerbaijani, russian)
 LANGUAGES = {
@@ -257,12 +242,12 @@ user_data = {}
 user_languages = {}
 admin_rejection_data = {}
 
-# --- Utility helpers for language ---
+#Utility helpers for language
 def get_text(user_id, key):
     lang = user_languages.get(user_id, 'en')
     return LANGUAGES.get(lang, LANGUAGES['en'])[key]
 
-# --- Database helpers ---
+#Database helpers
 async def init_db_pool():
     if not DATABASE_URL:
         logger.warning('DATABASE_URL not set. Skipping DB initialization. Referral features will not persist.')
@@ -377,11 +362,10 @@ async def reset_user_data(pool, user_id):
     if not pool:
         return
     async with pool.acquire() as conn:
-        # Сброс данных у самого игрока
+        # reset
         await conn.execute('UPDATE users SET game_nick=NULL, bonus_active=false, referrer_id=NULL WHERE id=$1', user_id)
         await conn.execute('DELETE FROM donations WHERE user_id=$1', user_id)
 
-        # Сброс всех приглашённых (чтобы бонусы ушли)
         await conn.execute('UPDATE users SET referrer_id=NULL WHERE referrer_id=$1', user_id)
 
 async def add_pending_request(pool, user_id, nickname, amount, pay_type, receipt=None):
@@ -463,7 +447,7 @@ async def get_next_counter(pool, counter_type: str) -> int:
             await conn.execute("INSERT INTO counters (type, value) VALUES ($1, 1) ON CONFLICT (type) DO UPDATE SET value = 1", counter_type)
             return 1
 
-# --- Bot handlers (modified) ---
+#Bot handlers 
 
 LANGUAGES['en'].update({
     #'rules_text': '📜 Rules: Follow server guidelines and respect others. (Sample text)',
@@ -487,7 +471,7 @@ LANGUAGES['ru'].update({
     'rules_reset': '♻️ Принятие правил сброшено для всех пользователей.'
 })
 
-# --- Модификация базы данных ---
+# DB modification
 async def init_db_pool_with_rules():
     pool = await init_db_pool()
     if pool:
@@ -495,11 +479,11 @@ async def init_db_pool_with_rules():
             await conn.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS rules_accepted BOOLEAN DEFAULT FALSE;")
     return pool
 
-# --- Команда /rules ---
+#/rules 
 async def rules_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Отправляет пользователю обновленные правила сервера AZEBRA Minecraft."""
     
-    # Текст правил, обновленный в соответствии с предоставленным файлом (без цитат)
+    
     rules_text = """
 *1. Ümumi Şərtlər*
 
@@ -538,11 +522,10 @@ async def rules_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 5.2. Siz yeni qaydaları qəbul edib-etməməkdə sərbəstsiniz. Qəbul edilmədiyi halda yeni ödənişlər və bağışlama xidmətləri təqdim olunmayacaq.
     """
     
-    # Отправка сообщения с правилами пользователю
-    # Parse_mode='Markdown' используется для форматирования текста (жирный шрифт, курсив и т.д.)
+    
     await update.message.reply_text(rules_text, parse_mode='Markdown')
 
-# --- Команда /donate с проверкой правил ---
+#/donate 
 async def donate_command_with_rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     pool = context.bot_data.get('db_pool')
@@ -560,10 +543,10 @@ async def donate_command_with_rules(update: Update, context: ContextTypes.DEFAUL
                 reply_markup = InlineKeyboardMarkup(keyboard)
                 await update.message.reply_text(get_text(user_id, 'need_rules'), reply_markup=reply_markup)
                 return
-    # если правила приняты → запускаем старую механику donate
+   
     await donate_command(update, context)
 
-# --- Callback кнопки принятия правил ---
+#Callback buttons
 async def rules_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -573,7 +556,7 @@ async def rules_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await conn.execute("UPDATE users SET rules_accepted=TRUE WHERE id=$1", user_id)
     await query.edit_message_text(get_text(user_id, 'rules_accepted'))
 
-# --- Команда /crules (только для админа) ---
+# /crules 
 async def crules_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id != ADMIN_ID:
@@ -682,7 +665,7 @@ async def profile_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 lines.append(f"- {uid} -> {pct}%")
         else:
             lines.append('\n' + get_text(user_id, 'profile_no_invited'))
-        # Добавляем profile_hint в конец
+        
         lines.append('\n\n' + get_text(user_id, 'profile_hint'))
         # add reset button
         keyboard = [[InlineKeyboardButton(get_text(user_id, 'reset_btn'), callback_data='reset_profile')]]
@@ -736,7 +719,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == 'cancel':
         if user_id in user_data:
-        # если инвойс был отправлен → меняем его текст
+        
             if 'invoice_message_id' in user_data[user_id]:
                 try:
                     await context.bot.edit_message_text(
@@ -769,13 +752,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         target_user_id = int(data.split('_')[1])
         pool = context.bot_data.get('db_pool')
 
-    # Пробуем взять данные из user_data
+    
         user_data_target = user_data.get(target_user_id, {})
 
         nickname = user_data_target.get('nickname')
         amount = user_data_target.get('amount')
 
-    # Если в user_data пусто, достаём из pending_requests
+    
         if (not nickname or not amount) and pool:
             async with pool.acquire() as conn:
                 row = await conn.fetchrow("SELECT nickname, amount FROM pending_requests WHERE user_id=$1", target_user_id)
@@ -787,19 +770,19 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             nickname = "Unknown"
         if not amount:
             amount = 0
-    # считаем бонус
+    
         owner_bonus = 0
         if pool:
-    # сначала записываем донат в базу
+    
             await add_donation_record(pool, target_user_id, amount, accepted=True)
 
-    # потом берём cumulative с учётом нового доната
+  
             cum = await get_total_accepted_by_user(pool, target_user_id)
             owner_bonus = percent_for_cumulative(cum)
 
         adjusted_amount = int(round(float(amount) * (1 + owner_bonus / 100.0)))
 
-    # уведомляем игрока (берём текст из словаря LANGUAGES)
+    
         try:
             await context.bot.send_message(
                 target_user_id,
@@ -811,13 +794,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if pool:
             await remove_pending_request(pool, target_user_id)
 
-    # считаем порядковый номер (счётчик)
+    
         try:
             card_counter = await get_next_counter(pool, "card") if pool else 1
         except Exception:
             card_counter = 1
 
-    # отправляем админу команду для консоли
+    
         await context.bot.send_message(
             ADMIN_ID,
             f"{card_counter}.🎮 Command for console:\n\n"
@@ -826,7 +809,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
 
-    # обновляем сообщение у админа
+    
         await query.edit_message_text(
             f"✅ Request accepted for user {target_user_id} — "
             f"points: {adjusted_amount} (bonus {owner_bonus}%)."
@@ -835,7 +818,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     elif data == 'cancel_payment':
         if user_id in user_data:
-        # Удаляем сообщение с инвойсом, если оно есть
+        
             if 'invoice_message_id' in user_data[user_id]:
                 try:
                     await context.bot.delete_message(
@@ -845,10 +828,10 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except Exception:
                     pass
 
-        # Очищаем данные
+       
             user_data.pop(user_id, None)
 
-    # Сообщение пользователю
+    
         try:
             await query.edit_message_text(get_text(user_id, 'request_cancelled'))
         except Exception:
@@ -889,14 +872,14 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     #except Exception:
                         #logger.exception('Failed to notify referrer')
 
-    # Отправляем игроку сообщение о принятии 
+    
         # compute owner bonus for the target_user (their own invited players)
         owner_bonus = 0
         if pool:
-    # сначала записываем донат в базу
+    
             await add_donation_record(pool, target_user_id, amount, accepted=True)
 
-    # потом проверяем ник и считаем бонус
+    
             used_saved = user_data_target.get('use_saved_nick', True)
             if used_saved:
                 cum = await get_total_accepted_by_user(pool, target_user_id)
@@ -912,7 +895,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             logger.exception('Failed to notify user about accepted donation')
 
-    # Отправляем админу команду с учётом бонуса
+    
             # send command to admin with card counter
         if pool:
             try:
@@ -931,7 +914,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
 
-    # Обновляем сообщение о принятии с указанием бонуса
+    
         await query.edit_message_text(
             f"✅ Request accepted for user {target_user_id} — points: {adjusted_amount} (bonus {owner_bonus}%)."
         )
@@ -952,13 +935,13 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if pool:
             await remove_pending_request(pool, target_user_id)
 
-    # Сообщение админу
+    
         await query.message.reply_text("send the reason")
         await query.edit_message_text(
             f"📝 Waiting for reason for user {target_user_id}..."
         )
 
-    # --- New callback handlers for nickname choices & reset ---
+    #Callback handlers for nickname choices & reset 
     elif data == 'use_saved_nick':
         pool = context.bot_data.get('db_pool')
         saved = None
@@ -999,7 +982,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             async with pool.acquire() as conn:
                 await conn.execute("UPDATE users SET locked=TRUE WHERE id=$1", user_id)
 
-    # Отправляем новое сообщение и сохраняем его ID
+    
         msg = await query.message.reply_text(
             f"💰 Amount: {amount} token\n"
             f"⭐ Stars to pay: {stars_amount}\n"
@@ -1031,7 +1014,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             target_user_id = admin_rejection_data[user_id]['target_user_id']
             reason = text
 
-            # игроку
+            
             await context.bot.send_message(
                 target_user_id,
                 get_text(target_user_id, 'request_rejected_with_reason').format(reason)
@@ -1169,7 +1152,7 @@ async def send_to_admin(user_id: int, context: ContextTypes.DEFAULT_TYPE):
     if pool:
         await add_pending_request(pool, user_id, data['nickname'], data['amount'], 'card', data['receipt_photo'])
 
-    # Считаем бонус для игрока
+    
     bonus_percent = 0
     final_amount = int(round(float(data['amount'])))
     if pool:
@@ -1179,7 +1162,7 @@ async def send_to_admin(user_id: int, context: ContextTypes.DEFAULT_TYPE):
             bonus_percent += percent_for_cumulative(cum)
         final_amount = int(round(float(data['amount']) * (1 + bonus_percent / 100.0)))
 
-    # Кнопки админа
+    
     keyboard = [
         [InlineKeyboardButton(get_text(ADMIN_ID, 'accept'), callback_data=f'accept_{user_id}')],
         [InlineKeyboardButton(get_text(ADMIN_ID, 'reject'), callback_data=f'reject_{user_id}')],
@@ -1187,7 +1170,7 @@ async def send_to_admin(user_id: int, context: ContextTypes.DEFAULT_TYPE):
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    # Сообщение админу
+    
     msg = (
         f"🔔 New donation request\n\n"
         f"👤 Nickname: {data['nickname']}\n"
@@ -1214,11 +1197,9 @@ async def send_stars_invoice(update, context, user_id, amount):
 
     stars_amount = calculate_stars(amount)
     
-    # Создаем уникальный payload для отслеживания платежа
+    
     payload = f"donation_{user_id}_{int(time.time())}"
     user_data[user_id]['payment_payload'] = payload
-    
-    # Устанавливаем таймер на 5 минут
     
     
     prices = [LabeledPrice("Donation", stars_amount)]
@@ -1230,7 +1211,7 @@ async def send_stars_invoice(update, context, user_id, amount):
         payload=payload,
         currency='XTR',  # Telegram Stars currency
         prices=prices,
-        provider_token=""  # Пустой для звезд
+        provider_token=""  
     )
     user_data[user_id]['invoice_message_id'] = msg.message_id
 
@@ -1265,7 +1246,7 @@ async def precheckout_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     query = update.pre_checkout_query
     payload = query.invoice_payload
     
-    # Проверяем, что payload соответствует активному платежу
+    
     user_id = None
     for uid, data in user_data.items():
         if data.get('payment_payload') == payload:
@@ -1285,14 +1266,14 @@ async def successful_payment_callback(update: Update, context: ContextTypes.DEFA
     if user_id not in user_data:
         return
     
-    # Уведомляем пользователя
+    
     await update.message.reply_text(get_text(user_id, 'payment_success'))
     user_data[user_id]['locked'] = False
     pool = context.bot_data.get('db_pool')
     if pool:
         async with pool.acquire() as conn:
             await conn.execute("UPDATE users SET locked=FALSE WHERE id=$1", user_id)
-    # Отправляем данные админу для обработки
+    
     await send_stars_donation_to_admin(user_id, context, payment)
     if pool:
         await remove_pending_request(pool, user_id)
@@ -1300,13 +1281,13 @@ async def successful_payment_callback(update: Update, context: ContextTypes.DEFA
 async def send_stars_donation_to_admin(user_id: int, context: ContextTypes.DEFAULT_TYPE, payment):
     pool = context.bot_data.get('db_pool')
 
-    # Пробуем взять данные из user_data
+   
     data = user_data.get(user_id, {})
 
     nickname = data.get('nickname')
     amount = data.get('amount')
 
-    # Если пусто, достаем из pending_requests
+    
     if (not nickname or not amount) and pool:
         async with pool.acquire() as conn:
             row = await conn.fetchrow("SELECT nickname, amount FROM pending_requests WHERE user_id=$1", user_id)
@@ -1319,7 +1300,7 @@ async def send_stars_donation_to_admin(user_id: int, context: ContextTypes.DEFAU
     if not amount:
         amount = 0
 
-    # Вычисляем бонус
+   
     bonus_percent = 0
     final_amount = int(round(float(amount)))
     if pool:
@@ -1329,7 +1310,7 @@ async def send_stars_donation_to_admin(user_id: int, context: ContextTypes.DEFAU
             bonus_percent += percent_for_cumulative(cum)
         final_amount = int(round(float(amount) * (1 + bonus_percent / 100.0)))
 
-    # Нумерация заявок
+    
     if pool:
         try:
             stars_counter = await get_next_counter(pool, "stars")
@@ -1341,12 +1322,12 @@ async def send_stars_donation_to_admin(user_id: int, context: ContextTypes.DEFAU
             stars_counter = 1
         context.bot_data['stars_counter'] = stars_counter
 
-    # Сохраняем в donations
+    
     if pool:
         await add_donation_record(pool, user_id, amount, accepted=True)
         await remove_pending_request(pool, user_id)
 
-    # Отправляем админу
+   
     command = f"points give {nickname} {final_amount}"
     msg = (
         f"{stars_counter}.⭐ STARS DONATION RECEIVED\n\n"
@@ -1374,15 +1355,15 @@ if __name__ == "__main__":
     async def main():
         application = Application.builder().token(BOT_TOKEN).build()
 
-        # Инициализация базы данных и запуск веб-сервера ДО polling
+        
         db_pool = await init_db_pool_with_rules()
         application.bot_data['db_pool'] = db_pool
 
-        # Запускаем веб-сервер и keep_alive сразу
+        
         await start_web_server()  
         asyncio.create_task(keep_alive())
 
-        # Хендлеры
+       
         application.add_handler(CommandHandler("start", start))
         application.add_handler(CommandHandler("lang", change_language))
         application.add_handler(CommandHandler("donate", donate_command_with_rules))
@@ -1397,12 +1378,12 @@ if __name__ == "__main__":
         application.add_handler(PreCheckoutQueryHandler(precheckout_callback))
         application.add_handler(MessageHandler(filters.SUCCESSFUL_PAYMENT, successful_payment_callback))
 
-        # === Правильный запуск polling ===
+        # Polling 
         logging.info("🚀 Bot started with polling.")
         await application.initialize()
         await application.bot.delete_webhook(drop_pending_updates=True) 
         await application.start()
         await application.updater.start_polling()
-        await asyncio.Event().wait()          # держим процесс
+        await asyncio.Event().wait()          
 
     asyncio.run(main())
